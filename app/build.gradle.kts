@@ -39,6 +39,10 @@ android {
     }
 }
 
+base {
+    archivesName.set("DualCamDirector")
+}
+
 kotlin {
     jvmToolchain(17)
 }
