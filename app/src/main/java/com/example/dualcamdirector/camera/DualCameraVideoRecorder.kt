@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.RectF
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -62,9 +66,11 @@ class DualCameraVideoRecorder(private val context: Context) {
 
     private var tempVideoFile: File? = null
     private val muxerLock = Any()
-
-    private var reusableMain: Bitmap? = null
-    private var reusableInset: Bitmap? = null
+    private var reusableMainRaw: Bitmap? = null
+    private var reusableMainTransformed: Bitmap? = null
+    private var reusableInsetRaw: Bitmap? = null
+    private var reusableInsetTransformed: Bitmap? = null
+    private val transformPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
 
     fun isRecording(): Boolean = isRecording
 
@@ -222,17 +228,35 @@ class DualCameraVideoRecorder(private val context: Context) {
                         ) {
                             val mw = mainTextureView.width
                             val mh = mainTextureView.height
-                            if (reusableMain == null || reusableMain?.width != mw || reusableMain?.height != mh) {
-                                reusableMain = Bitmap.createBitmap(mw, mh, Bitmap.Config.ARGB_8888)
+                            if (reusableMainRaw == null || reusableMainRaw?.width != mw || reusableMainRaw?.height != mh) {
+                                reusableMainRaw = Bitmap.createBitmap(mw, mh, Bitmap.Config.ARGB_8888)
+                                reusableMainTransformed = Bitmap.createBitmap(mw, mh, Bitmap.Config.ARGB_8888)
                             }
                             val iw = insetTextureView.width
                             val ih = insetTextureView.height
-                            if (reusableInset == null || reusableInset?.width != iw || reusableInset?.height != ih) {
-                                reusableInset = Bitmap.createBitmap(iw, ih, Bitmap.Config.ARGB_8888)
+                            if (reusableInsetRaw == null || reusableInsetRaw?.width != iw || reusableInsetRaw?.height != ih) {
+                                reusableInsetRaw = Bitmap.createBitmap(iw, ih, Bitmap.Config.ARGB_8888)
+                                reusableInsetTransformed = Bitmap.createBitmap(iw, ih, Bitmap.Config.ARGB_8888)
                             }
 
-                            mainTextureView.getBitmap(reusableMain!!)
-                            insetTextureView.getBitmap(reusableInset!!)
+                            // Capture raw texture buffers
+                            mainTextureView.getBitmap(reusableMainRaw!!)
+                            insetTextureView.getBitmap(reusableInsetRaw!!)
+
+                            // Render transformed main camera with active display Matrix
+                            val mainCanvas = Canvas(reusableMainTransformed!!)
+                            mainCanvas.drawColor(Color.BLACK)
+                            val mainMatrix = Matrix()
+                            mainTextureView.getTransform(mainMatrix)
+                            mainCanvas.drawBitmap(reusableMainRaw!!, mainMatrix, transformPaint)
+
+                            // Render transformed inset camera with active display Matrix
+                            val insetCanvas = Canvas(reusableInsetTransformed!!)
+                            insetCanvas.drawColor(Color.BLACK)
+                            val insetMatrix = Matrix()
+                            insetTextureView.getTransform(insetMatrix)
+                            insetCanvas.drawBitmap(reusableInsetRaw!!, insetMatrix, transformPaint)
+
                             frameReady = true
                         }
                     } catch (e: Exception) {
@@ -241,12 +265,12 @@ class DualCameraVideoRecorder(private val context: Context) {
                 }
 
                 // 2. Render composite to MediaCodec hardware canvas on background thread
-                if (frameReady && reusableMain != null && reusableInset != null) {
+                if (frameReady && reusableMainTransformed != null && reusableInsetTransformed != null) {
                     try {
                         val canvas = surface.lockHardwareCanvas()
                         try {
-                            // Main fullscreen camera with aspect ratio preservation
-                            DualCameraCaptureHelper.drawScaledBitmapCenterCrop(canvas, reusableMain!!, fullVideoRect)
+                            // Main fullscreen camera with true aspect ratio preservation
+                            DualCameraCaptureHelper.drawScaledBitmapCenterCrop(canvas, reusableMainTransformed!!, fullVideoRect)
 
                             // Scaled inset bounds and fancy frame
                             val bounds = getInsetBounds()
@@ -263,7 +287,7 @@ class DualCameraVideoRecorder(private val context: Context) {
                                 (bounds.y + bounds.height) * sy
                             )
 
-                            DualCameraCaptureHelper.drawFramedInset(canvas, reusableInset!!, frameType, targetRect)
+                            DualCameraCaptureHelper.drawFramedInset(canvas, reusableInsetTransformed!!, frameType, targetRect)
                         } finally {
                             surface.unlockCanvasAndPost(canvas)
                         }
@@ -536,9 +560,13 @@ class DualCameraVideoRecorder(private val context: Context) {
         muxerStarted = false
         tempVideoFile?.delete()
         tempVideoFile = null
-        reusableMain?.recycle()
-        reusableMain = null
-        reusableInset?.recycle()
-        reusableInset = null
+        reusableMainRaw?.recycle()
+        reusableMainRaw = null
+        reusableMainTransformed?.recycle()
+        reusableMainTransformed = null
+        reusableInsetRaw?.recycle()
+        reusableInsetRaw = null
+        reusableInsetTransformed?.recycle()
+        reusableInsetTransformed = null
     }
 }

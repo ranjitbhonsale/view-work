@@ -63,7 +63,11 @@ import com.example.dualcamdirector.ui.dialogs.CameraInfoDialog
 import com.example.dualcamdirector.ui.frames.FancyFrameType
 import com.example.dualcamdirector.ui.hud.CameraHud
 import com.example.dualcamdirector.ui.inset.DraggableInsetView
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun DualCamDirectorApp() {
@@ -128,6 +132,8 @@ private fun CameraDirectorContent() {
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
     var lastCapturedMimeType by remember { mutableStateOf<String?>("image/jpeg") }
     var lastCapturedThumbnail by remember { mutableStateOf<Bitmap?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    var isCapturingSnapshot by remember { mutableStateOf(false) }
 
     // Live video composite recorder
     val videoRecorder = remember { DualCameraVideoRecorder(context) }
@@ -293,36 +299,73 @@ private fun CameraDirectorContent() {
                 }
             },
             onCaptureSnapshot = {
+                if (isCapturingSnapshot) return@CameraControls
+                isCapturingSnapshot = true
                 showFlashOverlay = true
-                val mainBmp = mainTextureViewRef?.bitmap
-                val insetBmp = insetTextureViewRef?.bitmap
 
-                if (mainBmp != null && insetBmp != null) {
-                    try {
-                        val composite = DualCameraCaptureHelper.compositeDualShot(
-                            mainBitmap = mainBmp,
-                            insetBitmap = insetBmp,
-                            frameType = selectedFrame,
-                            insetX = insetBoundsX,
-                            insetY = insetBoundsY,
-                            insetW = insetBoundsW,
-                            insetH = insetBoundsH,
-                            viewW = parentViewW,
-                            viewH = parentViewH
-                        )
-                        val uri = DualCameraCaptureHelper.saveBitmapToGallery(context, composite)
-                        if (uri != null) {
-                            lastCapturedUri = uri
-                            lastCapturedMimeType = "image/jpeg"
-                            lastCapturedThumbnail = Bitmap.createScaledBitmap(composite, 140, 140, true)
-                            Toast.makeText(context, "Photo saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Failed to save photo", Toast.LENGTH_SHORT).show()
+                val mainTv = mainTextureViewRef
+                val insetTv = insetTextureViewRef
+
+                if (mainTv != null && insetTv != null && mainTv.isAvailable && insetTv.isAvailable) {
+                    val mainBmp = DualCameraCaptureHelper.captureTransformedBitmap(mainTv)
+                    val insetBmp = DualCameraCaptureHelper.captureTransformedBitmap(insetTv)
+
+                    if (mainBmp != null && insetBmp != null) {
+                        val currentFrame = selectedFrame
+                        val ix = insetBoundsX
+                        val iy = insetBoundsY
+                        val iw = insetBoundsW
+                        val ih = insetBoundsH
+                        val pw = parentViewW
+                        val ph = parentViewH
+
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val composite = DualCameraCaptureHelper.compositeDualShot(
+                                    mainBitmap = mainBmp,
+                                    insetBitmap = insetBmp,
+                                    frameType = currentFrame,
+                                    insetX = ix,
+                                    insetY = iy,
+                                    insetW = iw,
+                                    insetH = ih,
+                                    viewW = pw,
+                                    viewH = ph
+                                )
+                                // Free raw/intermediate bitmaps immediately
+                                mainBmp.recycle()
+                                insetBmp.recycle()
+
+                                val uri = DualCameraCaptureHelper.saveBitmapToGallery(context, composite)
+                                val thumb = Bitmap.createScaledBitmap(composite, 140, 140, true)
+                                composite.recycle()
+
+                                withContext(Dispatchers.Main) {
+                                    if (uri != null) {
+                                        lastCapturedUri = uri
+                                        lastCapturedMimeType = "image/jpeg"
+                                        lastCapturedThumbnail = thumb
+                                        Toast.makeText(context, "Photo saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Failed to save photo", Toast.LENGTH_SHORT).show()
+                                    }
+                                    isCapturingSnapshot = false
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Capture error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    isCapturingSnapshot = false
+                                }
+                            }
                         }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Capture error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        mainBmp?.recycle()
+                        insetBmp?.recycle()
+                        isCapturingSnapshot = false
+                        Toast.makeText(context, "Camera preview not ready", Toast.LENGTH_SHORT).show()
                     }
                 } else {
+                    isCapturingSnapshot = false
                     Toast.makeText(context, "Camera feeds initializing...", Toast.LENGTH_SHORT).show()
                 }
             },

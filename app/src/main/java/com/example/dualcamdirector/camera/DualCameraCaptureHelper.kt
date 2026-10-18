@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
@@ -18,6 +19,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import android.view.TextureView
 import com.example.dualcamdirector.ui.frames.FancyFrameType
 import java.io.File
 import java.io.FileOutputStream
@@ -28,6 +30,37 @@ import java.util.Locale
 private const val TAG = "DualCameraCapture"
 
 object DualCameraCaptureHelper {
+
+    /**
+     * Safely captures a TextureView frame and applies its active Matrix transform
+     * (center-crop scaling, rotation, front-camera flip) so the resulting Bitmap
+     * matches the exact on-screen visual presentation without any distortion or stretching.
+     */
+    fun captureTransformedBitmap(tv: TextureView): Bitmap? {
+        if (!tv.isAvailable || tv.width <= 0 || tv.height <= 0) return null
+        val w = tv.width
+        val h = tv.height
+
+        val raw = try {
+            tv.bitmap
+        } catch (e: Exception) {
+            Log.e(TAG, "Error acquiring texture bitmap", e)
+            null
+        } ?: return null
+
+        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        canvas.drawColor(Color.BLACK)
+
+        val matrix = Matrix()
+        tv.getTransform(matrix)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
+        canvas.drawBitmap(raw, matrix, paint)
+
+        raw.recycle()
+        return result
+    }
 
     /**
      * Composites the fullscreen main camera bitmap and the draggable inset camera bitmap
@@ -147,14 +180,22 @@ object DualCameraCaptureHelper {
             cy += holeSpacing
         }
 
-        // 3. Draw Inner Inset Camera Stream with padding
-        val padding = rect.width() * 0.07f
+        // 3. Draw Inner Inset Camera Stream with uniform padding
+        val padding = rect.width() * 0.065f
         val innerRect = RectF(
             rect.left + padding,
             rect.top + padding,
             rect.right - padding,
-            rect.bottom - padding * 1.5f
+            rect.bottom - padding
         )
+
+        // Inner photo border (subtle beige border matching Compose)
+        val innerBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#DCD6CA")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        canvas.drawRect(innerRect, innerBorderPaint)
 
         canvas.save()
         val innerPath = Path().apply {
@@ -164,44 +205,44 @@ object DualCameraCaptureHelper {
         drawScaledBitmapCenterCrop(canvas, insetBitmap, innerRect)
         canvas.restore()
 
-        // 4. Postal Postmark stamp overlay (wavy cancellation lines)
+        // 4. Postal Postmark stamp overlay (top-left cancellation lines, matching preview HUD)
         val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(130, 40, 40, 40)
+            color = Color.argb(100, 45, 45, 45)
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 2f
         }
 
-        val waveStartX = rect.left + rect.width() * 0.12f
-        val waveWidth = rect.width() * 0.65f
+        val waveStartX = rect.left + rect.width() * 0.05f
+        val waveWidth = rect.width() * 0.42f
         for (i in 0..2) {
-            val y = rect.top + rect.height() * (0.12f + i * 0.045f)
+            val y = rect.top + rect.height() * (0.07f + i * 0.032f)
             val wavePath = Path().apply {
                 moveTo(waveStartX, y)
                 cubicTo(
-                    waveStartX + waveWidth * 0.33f, y - 8f,
-                    waveStartX + waveWidth * 0.66f, y + 8f,
+                    waveStartX + waveWidth * 0.33f, y - 5f,
+                    waveStartX + waveWidth * 0.66f, y + 5f,
                     waveStartX + waveWidth, y
                 )
             }
             canvas.drawPath(wavePath, inkPaint)
         }
 
-        // Circular Postmark Stamp
-        val stampCenterX = rect.right - rect.width() * 0.28f
-        val stampCenterY = rect.bottom - rect.height() * 0.22f
-        val stampRadius = rect.width() * 0.20f
+        // Circular Postmark Stamp at top-left
+        val stampCenterX = rect.left + rect.width() * 0.22f
+        val stampCenterY = rect.top + rect.height() * 0.11f
+        val stampRadius = rect.width() * 0.10f
         canvas.drawCircle(stampCenterX, stampCenterY, stampRadius, inkPaint)
-        canvas.drawCircle(stampCenterX, stampCenterY, stampRadius * 0.88f, inkPaint)
+        canvas.drawCircle(stampCenterX, stampCenterY, stampRadius * 0.85f, inkPaint)
 
         // Inner date stamp text
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(150, 40, 40, 40)
-            textSize = rect.width() * 0.048f
+            color = Color.argb(120, 45, 45, 45)
+            textSize = rect.width() * 0.032f
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true
         }
         val dateStr = SimpleDateFormat("dd.MM.yy", Locale.US).format(Date())
-        canvas.drawText("DUAL SHOT", stampCenterX, stampCenterY - 4f, textPaint)
+        canvas.drawText("DUAL SHOT", stampCenterX, stampCenterY - 2f, textPaint)
         canvas.drawText(dateStr, stampCenterX, stampCenterY + textPaint.textSize + 2f, textPaint)
     }
 
