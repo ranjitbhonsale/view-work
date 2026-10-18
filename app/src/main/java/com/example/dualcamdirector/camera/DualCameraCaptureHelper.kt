@@ -11,6 +11,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -65,7 +66,7 @@ object DualCameraCaptureHelper {
         return result
     }
 
-    private fun drawFramedInset(
+    fun drawFramedInset(
         canvas: Canvas,
         insetBitmap: Bitmap,
         frameType: FancyFrameType,
@@ -260,7 +261,7 @@ object DualCameraCaptureHelper {
         canvas.drawText("DUAL DIRECTOR", rect.centerX(), rect.bottom - padding * 1.2f, textPaint)
     }
 
-    private fun drawScaledBitmapCenterCrop(canvas: Canvas, src: Bitmap, dst: RectF) {
+    fun drawScaledBitmapCenterCrop(canvas: Canvas, src: Bitmap, dst: RectF) {
         val srcRatio = src.width.toFloat() / src.height.toFloat()
         val dstRatio = dst.width() / dst.height()
 
@@ -313,12 +314,80 @@ object DualCameraCaptureHelper {
             }
 
             MediaScannerConnection.scanFile(context, arrayOf(uri.toString()), arrayOf("image/jpeg"), null)
-            Log.i(TAG, "Successfully saved dual-shot to gallery: $uri")
+            Log.i(TAG, "Successfully saved dual-shot photo to gallery: $uri")
             return uri
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving dual-shot to MediaStore", e)
+            Log.e(TAG, "Error saving dual-shot photo to MediaStore", e)
             resolver.delete(uri, null, null)
             return null
+        }
+    }
+
+    /**
+     * Saves an MP4 video file to the public Android MediaStore Gallery (DCIM/Camera)
+     * and returns the content Uri.
+     */
+    fun saveVideoToGallery(context: Context, tempFile: File): Uri? {
+        if (!tempFile.exists() || tempFile.length() == 0L) {
+            Log.e(TAG, "Video temp file is missing or empty")
+            return null
+        }
+
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val filename = "DUAL_CAM_$timestamp.mp4"
+
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, filename)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.DATE_ADDED, System.currentTimeMillis() / 1000)
+            put(MediaStore.Video.Media.DATE_TAKEN, System.currentTimeMillis())
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/Camera")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                tempFile.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+
+            MediaScannerConnection.scanFile(context, arrayOf(uri.toString()), arrayOf("video/mp4"), null)
+            Log.i(TAG, "Successfully saved dual-shot video to gallery: $uri")
+            return uri
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving video to MediaStore", e)
+            resolver.delete(uri, null, null)
+            return null
+        }
+    }
+
+    /**
+     * Extracts a frame thumbnail from a saved video Uri for the circular UI button.
+     */
+    fun extractVideoThumbnail(context: Context, uri: Uri): Bitmap? {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(context, uri)
+            val frame = retriever.getFrameAtTime(500000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.frameAtTime
+            retriever.release()
+            frame
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting video thumbnail", e)
+            null
         }
     }
 }

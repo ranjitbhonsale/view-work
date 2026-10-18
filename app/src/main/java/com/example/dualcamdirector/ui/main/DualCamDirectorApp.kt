@@ -55,6 +55,7 @@ import androidx.core.content.ContextCompat
 import com.example.dualcamdirector.camera.CameraRole
 import com.example.dualcamdirector.camera.DualCameraCaptureHelper
 import com.example.dualcamdirector.camera.DualCameraManager
+import com.example.dualcamdirector.camera.DualCameraVideoRecorder
 import com.example.dualcamdirector.camera.HardwareCameraView
 import com.example.dualcamdirector.camera.SimulatedCameraFeed
 import com.example.dualcamdirector.ui.controls.CameraControls
@@ -125,7 +126,11 @@ private fun CameraDirectorContent() {
 
     // Saved media gallery thumbnail & URI
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
+    var lastCapturedMimeType by remember { mutableStateOf<String?>("image/jpeg") }
     var lastCapturedThumbnail by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Live video composite recorder
+    val videoRecorder = remember { DualCameraVideoRecorder(context) }
 
     // Draggable Inset dynamic positioning in view pixels
     var insetBoundsX by remember { mutableFloatStateOf(40f) }
@@ -150,6 +155,7 @@ private fun CameraDirectorContent() {
     // Lifecycle cleanup
     DisposableEffect(Unit) {
         onDispose {
+            videoRecorder.release()
             cameraManager.stopCameras()
         }
     }
@@ -241,35 +247,49 @@ private fun CameraDirectorContent() {
             onToggleRecord = {
                 if (camState.isRecording) {
                     cameraManager.stopRecording()
-                    // Capture final composite frame to save video snapshot cover and update thumbnail icon
-                    val mainBmp = mainTextureViewRef?.bitmap
-                    val insetBmp = insetTextureViewRef?.bitmap
-                    if (mainBmp != null && insetBmp != null) {
-                        try {
-                            val composite = DualCameraCaptureHelper.compositeDualShot(
-                                mainBitmap = mainBmp,
-                                insetBitmap = insetBmp,
-                                frameType = selectedFrame,
-                                insetX = insetBoundsX,
-                                insetY = insetBoundsY,
-                                insetW = insetBoundsW,
-                                insetH = insetBoundsH,
-                                viewW = parentViewW,
-                                viewH = parentViewH
-                            )
-                            val uri = DualCameraCaptureHelper.saveBitmapToGallery(context, composite)
-                            if (uri != null) {
-                                lastCapturedUri = uri
-                                lastCapturedThumbnail = Bitmap.createScaledBitmap(composite, 140, 140, true)
+                    videoRecorder.stopRecording { uri, thumbnail ->
+                        if (uri != null) {
+                            lastCapturedUri = uri
+                            lastCapturedMimeType = "video/mp4"
+                            if (thumbnail != null) {
+                                lastCapturedThumbnail = Bitmap.createScaledBitmap(thumbnail, 140, 140, true)
                             }
-                        } catch (e: Exception) {
-                            // continue
+                            Toast.makeText(context, "Video recording saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Failed to save video", Toast.LENGTH_SHORT).show()
                         }
                     }
-                    Toast.makeText(context, "Video recording saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
                 } else {
-                    cameraManager.startRecording()
-                    Toast.makeText(context, "Recording started! You can drag the inset freely.", Toast.LENGTH_SHORT).show()
+                    val mainTv = mainTextureViewRef
+                    val insetTv = insetTextureViewRef
+                    if (mainTv != null && insetTv != null) {
+                        cameraManager.startRecording()
+                        videoRecorder.startRecording(
+                            mainTextureView = mainTv,
+                            insetTextureView = insetTv,
+                            getFrameType = { selectedFrame },
+                            getInsetBounds = {
+                                DualCameraVideoRecorder.InsetBounds(
+                                    x = insetBoundsX,
+                                    y = insetBoundsY,
+                                    width = insetBoundsW,
+                                    height = insetBoundsH,
+                                    parentWidth = parentViewW,
+                                    parentHeight = parentViewH
+                                )
+                            },
+                            onDurationUpdate = { seconds ->
+                                cameraManager.updateRecordingDuration(seconds)
+                            },
+                            onError = { err ->
+                                Toast.makeText(context, "Recording error: $err", Toast.LENGTH_SHORT).show()
+                                cameraManager.stopRecording()
+                            }
+                        )
+                        Toast.makeText(context, "Recording started! You can drag the inset freely.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Camera preview initializing...", Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
             onCaptureSnapshot = {
@@ -293,6 +313,7 @@ private fun CameraDirectorContent() {
                         val uri = DualCameraCaptureHelper.saveBitmapToGallery(context, composite)
                         if (uri != null) {
                             lastCapturedUri = uri
+                            lastCapturedMimeType = "image/jpeg"
                             lastCapturedThumbnail = Bitmap.createScaledBitmap(composite, 140, 140, true)
                             Toast.makeText(context, "Photo saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
                         } else {
@@ -308,8 +329,9 @@ private fun CameraDirectorContent() {
             lastCapturedThumbnail = lastCapturedThumbnail,
             onGalleryClick = {
                 if (lastCapturedUri != null) {
+                    val mime = lastCapturedMimeType ?: "image/jpeg"
                     val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(lastCapturedUri, "image/jpeg")
+                        setDataAndType(lastCapturedUri, mime)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     try {
@@ -323,7 +345,7 @@ private fun CameraDirectorContent() {
                     try {
                         context.startActivity(fallback)
                     } catch (e: Exception) {
-                        Toast.makeText(context, "No dual camera photos captured yet", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "No media captured yet", Toast.LENGTH_SHORT).show()
                     }
                 }
             },
