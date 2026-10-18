@@ -1,8 +1,13 @@
 package com.example.dualcamdirector.ui.main
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
+import android.net.Uri
+import android.provider.MediaStore
+import android.view.TextureView
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.dualcamdirector.camera.CameraRole
+import com.example.dualcamdirector.camera.DualCameraCaptureHelper
 import com.example.dualcamdirector.camera.DualCameraManager
 import com.example.dualcamdirector.camera.HardwareCameraView
 import com.example.dualcamdirector.camera.SimulatedCameraFeed
@@ -112,6 +119,22 @@ private fun CameraDirectorContent() {
     var showFlashOverlay by remember { mutableStateOf(false) }
     var rotationOffset by remember { mutableIntStateOf(0) }
 
+    // Live TextureView references for hardware-accelerated snapshot capture
+    var mainTextureViewRef by remember { mutableStateOf<TextureView?>(null) }
+    var insetTextureViewRef by remember { mutableStateOf<TextureView?>(null) }
+
+    // Saved media gallery thumbnail & URI
+    var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
+    var lastCapturedThumbnail by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Draggable Inset dynamic positioning in view pixels
+    var insetBoundsX by remember { mutableFloatStateOf(40f) }
+    var insetBoundsY by remember { mutableFloatStateOf(160f) }
+    var insetBoundsW by remember { mutableFloatStateOf(300f) }
+    var insetBoundsH by remember { mutableFloatStateOf(400f) }
+    var parentViewW by remember { mutableFloatStateOf(1080f) }
+    var parentViewH by remember { mutableFloatStateOf(2400f) }
+
     // Recording duration timer
     LaunchedEffect(camState.isRecording) {
         if (camState.isRecording) {
@@ -146,6 +169,7 @@ private fun CameraDirectorContent() {
             previewWidth = cameraManager.mainPreviewSize.width,
             previewHeight = cameraManager.mainPreviewSize.height,
             rotationOffset = rotationOffset,
+            onTextureViewRef = { mainTextureViewRef = it },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -156,6 +180,14 @@ private fun CameraDirectorContent() {
             onSwapClick = {
                 cameraManager.swapCameras()
                 Toast.makeText(context, "Swapped to Main: ${camState.insetRole.name}", Toast.LENGTH_SHORT).show()
+            },
+            onInsetBoundsChanged = { x, y, w, h, pw, ph ->
+                insetBoundsX = x
+                insetBoundsY = y
+                insetBoundsW = w
+                insetBoundsH = h
+                parentViewW = pw
+                parentViewH = ph
             },
             modifier = Modifier.fillMaxSize()
         ) {
@@ -169,6 +201,7 @@ private fun CameraDirectorContent() {
                 previewWidth = cameraManager.insetPreviewSize.width,
                 previewHeight = cameraManager.insetPreviewSize.height,
                 rotationOffset = rotationOffset,
+                onTextureViewRef = { insetTextureViewRef = it },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -191,7 +224,7 @@ private fun CameraDirectorContent() {
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // BOTTOM CONTROLS (Dual zoom 0.6x-10x, fancy frames carousel, record button, swap, flash)
+        // BOTTOM CONTROLS (Dual zoom 0.6x-10x, fancy frames carousel, record button, swap, flash, gallery thumbnail)
         CameraControls(
             camState = camState,
             selectedFrame = selectedFrame,
@@ -208,7 +241,32 @@ private fun CameraDirectorContent() {
             onToggleRecord = {
                 if (camState.isRecording) {
                     cameraManager.stopRecording()
-                    Toast.makeText(context, "Video recording saved to Director gallery", Toast.LENGTH_SHORT).show()
+                    // Capture final composite frame to save video snapshot cover and update thumbnail icon
+                    val mainBmp = mainTextureViewRef?.bitmap
+                    val insetBmp = insetTextureViewRef?.bitmap
+                    if (mainBmp != null && insetBmp != null) {
+                        try {
+                            val composite = DualCameraCaptureHelper.compositeDualShot(
+                                mainBitmap = mainBmp,
+                                insetBitmap = insetBmp,
+                                frameType = selectedFrame,
+                                insetX = insetBoundsX,
+                                insetY = insetBoundsY,
+                                insetW = insetBoundsW,
+                                insetH = insetBoundsH,
+                                viewW = parentViewW,
+                                viewH = parentViewH
+                            )
+                            val uri = DualCameraCaptureHelper.saveBitmapToGallery(context, composite)
+                            if (uri != null) {
+                                lastCapturedUri = uri
+                                lastCapturedThumbnail = Bitmap.createScaledBitmap(composite, 140, 140, true)
+                            }
+                        } catch (e: Exception) {
+                            // continue
+                        }
+                    }
+                    Toast.makeText(context, "Video recording saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
                 } else {
                     cameraManager.startRecording()
                     Toast.makeText(context, "Recording started! You can drag the inset freely.", Toast.LENGTH_SHORT).show()
@@ -216,7 +274,58 @@ private fun CameraDirectorContent() {
             },
             onCaptureSnapshot = {
                 showFlashOverlay = true
-                Toast.makeText(context, "Captured Dual-Cam snapshot!", Toast.LENGTH_SHORT).show()
+                val mainBmp = mainTextureViewRef?.bitmap
+                val insetBmp = insetTextureViewRef?.bitmap
+
+                if (mainBmp != null && insetBmp != null) {
+                    try {
+                        val composite = DualCameraCaptureHelper.compositeDualShot(
+                            mainBitmap = mainBmp,
+                            insetBitmap = insetBmp,
+                            frameType = selectedFrame,
+                            insetX = insetBoundsX,
+                            insetY = insetBoundsY,
+                            insetW = insetBoundsW,
+                            insetH = insetBoundsH,
+                            viewW = parentViewW,
+                            viewH = parentViewH
+                        )
+                        val uri = DualCameraCaptureHelper.saveBitmapToGallery(context, composite)
+                        if (uri != null) {
+                            lastCapturedUri = uri
+                            lastCapturedThumbnail = Bitmap.createScaledBitmap(composite, 140, 140, true)
+                            Toast.makeText(context, "Photo saved to Gallery (DCIM/Camera)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Failed to save photo", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Capture error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Camera feeds initializing...", Toast.LENGTH_SHORT).show()
+                }
+            },
+            lastCapturedThumbnail = lastCapturedThumbnail,
+            onGalleryClick = {
+                if (lastCapturedUri != null) {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(lastCapturedUri, "image/jpeg")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        val fallback = Intent(Intent.ACTION_VIEW, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                        try { context.startActivity(fallback) } catch (_: Exception) {}
+                    }
+                } else {
+                    val fallback = Intent(Intent.ACTION_VIEW, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                    try {
+                        context.startActivity(fallback)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "No dual camera photos captured yet", Toast.LENGTH_SHORT).show()
+                    }
+                }
             },
             modifier = Modifier.fillMaxSize()
         )

@@ -126,6 +126,7 @@ fun HardwareCameraView(
     previewWidth: Int = 1920,
     previewHeight: Int = 1080,
     rotationOffset: Int = 0,
+    onTextureViewRef: (TextureView) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -211,6 +212,7 @@ fun HardwareCameraView(
         factory = { ctx ->
             TextureView(ctx).apply {
                 textureViewRef = this
+                onTextureViewRef(this)
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -264,6 +266,7 @@ fun HardwareCameraView(
         },
         update = { tv ->
             textureViewRef = tv
+            onTextureViewRef(tv)
             if (tv.width > 0 && tv.height > 0) {
                 configureTransform(tv, tv.width, tv.height)
             }

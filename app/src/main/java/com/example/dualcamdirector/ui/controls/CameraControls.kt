@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Palette
@@ -43,6 +46,8 @@ import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -52,6 +57,7 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -85,6 +91,8 @@ fun CameraControls(
     onToggleTorch: () -> Unit,
     onToggleRecord: () -> Unit,
     onCaptureSnapshot: () -> Unit,
+    lastCapturedThumbnail: Bitmap? = null,
+    onGalleryClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
@@ -194,6 +202,13 @@ fun CameraControls(
                         letterSpacing = 0.5.sp
                     )
                 }
+
+                // FOURTH BUTTON: Saved Gallery Thumbnail Icon (Opens saved photo/gallery)
+                GalleryThumbnailButton(
+                    thumbnail = lastCapturedThumbnail,
+                    onClick = onGalleryClick,
+                    modifier = Modifier.size(52.dp)
+                )
             }
 
             // COMPACT FLOATING ZOOM PILL IN LANDSCAPE (Bottom-Right, keeping screen crystal clear)
@@ -403,16 +418,23 @@ fun CameraControls(
                 IconButton(
                     onClick = onSwapCameras,
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(42.dp)
                         .background(Color.White.copy(alpha = 0.18f), CircleShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Cameraswitch,
                         contentDescription = "Swap Main and Inset",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
+
+                // Saved Gallery Thumbnail Icon (Opens saved photo/gallery)
+                GalleryThumbnailButton(
+                    thumbnail = lastCapturedThumbnail,
+                    onClick = onGalleryClick,
+                    modifier = Modifier.size(46.dp)
+                )
             }
         }
     }
@@ -710,3 +732,49 @@ private fun RecordButton(
         }
     }
 }
+
+@Composable
+fun GalleryThumbnailButton(
+    thumbnail: Bitmap?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scaleAnim = remember { androidx.compose.animation.core.Animatable(1.0f) }
+
+    LaunchedEffect(thumbnail) {
+        if (thumbnail != null) {
+            scaleAnim.animateTo(1.22f, tween(120, easing = FastOutSlowInEasing))
+            scaleAnim.animateTo(1.0f, tween(180, easing = FastOutSlowInEasing))
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .scale(scaleAnim.value)
+            .shadow(8.dp, CircleShape)
+            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(listOf(Color(0xFF2C2C35), Color(0xFF141418)))
+            )
+            .border(2.dp, if (thumbnail != null) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.5f), CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        if (thumbnail != null) {
+            Image(
+                bitmap = thumbnail.asImageBitmap(),
+                contentDescription = "Open Gallery",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Collections,
+                contentDescription = "Gallery",
+                tint = Color.White.copy(alpha = 0.8f),
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+

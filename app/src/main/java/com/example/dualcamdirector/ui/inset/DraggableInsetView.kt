@@ -54,6 +54,7 @@ fun DraggableInsetView(
     frameType: FancyFrameType,
     isRecording: Boolean,
     onSwapClick: () -> Unit,
+    onInsetBoundsChanged: (x: Float, y: Float, w: Float, h: Float, parentW: Float, parentH: Float) -> Unit = { _, _, _, _, _, _ -> },
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -84,12 +85,19 @@ fun DraggableInsetView(
         val rightMarginPx = with(density) { if (isLandscape) 95.dp.toPx() else 20.dp.toPx() }
         val bottomMarginPx = with(density) { if (isLandscape) 20.dp.toPx() else 180.dp.toPx() }
 
+        val actualX = offsetX.coerceIn(20f, (parentWidthPx - insetWidthPx - rightMarginPx).coerceAtLeast(20f))
+        val actualY = offsetY.coerceIn(50f, (parentHeightPx - insetHeightPx - bottomMarginPx).coerceAtLeast(50f))
+
+        androidx.compose.runtime.LaunchedEffect(actualX, actualY, insetWidthPx, insetHeightPx, parentWidthPx, parentHeightPx) {
+            onInsetBoundsChanged(actualX, actualY, insetWidthPx, insetHeightPx, parentWidthPx, parentHeightPx)
+        }
+
         Box(
             modifier = Modifier
                 .offset {
                     IntOffset(
-                        offsetX.roundToInt().coerceIn(20, (parentWidthPx - insetWidthPx - rightMarginPx).toInt().coerceAtLeast(20)),
-                        offsetY.roundToInt().coerceIn(50, (parentHeightPx - insetHeightPx - bottomMarginPx).toInt().coerceAtLeast(50))
+                        actualX.roundToInt(),
+                        actualY.roundToInt()
                     )
                 }
                 .size(width = animatedWidth, height = animatedHeight)
