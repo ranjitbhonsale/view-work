@@ -64,6 +64,9 @@ import com.example.dualcamdirector.ui.frames.FancyFrameType
 import com.example.dualcamdirector.ui.hud.CameraHud
 import com.example.dualcamdirector.ui.inset.DraggableInsetView
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -158,9 +161,43 @@ private fun CameraDirectorContent() {
         }
     }
 
-    // Lifecycle cleanup
-    DisposableEffect(Unit) {
+    // Lifecycle-aware camera session management
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    // Safe cleanup when app is sent to background, user switches to gallery or home screen
+                    if (camState.isRecording) {
+                        cameraManager.stopRecording()
+                        videoRecorder.stopRecording { uri, thumb ->
+                            if (uri != null) {
+                                lastCapturedUri = uri
+                                lastCapturedMimeType = "video/mp4"
+                                if (thumb != null) {
+                                    lastCapturedThumbnail = Bitmap.createScaledBitmap(thumb, 140, 140, true)
+                                }
+                            }
+                        }
+                    }
+                    cameraManager.pauseCameras()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    // When returning to the app, restore cameras smoothly on existing surfaces
+                    val mainSt = if (mainTextureViewRef?.isAvailable == true) mainTextureViewRef?.surfaceTexture else null
+                    val insetSt = if (insetTextureViewRef?.isAvailable == true) insetTextureViewRef?.surfaceTexture else null
+                    cameraManager.resumeCameras(mainSt, insetSt)
+                }
+                Lifecycle.Event.ON_DESTROY -> {
+                    videoRecorder.release()
+                    cameraManager.stopCameras()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             videoRecorder.release()
             cameraManager.stopCameras()
         }
@@ -182,6 +219,7 @@ private fun CameraDirectorContent() {
             previewHeight = cameraManager.mainPreviewSize.height,
             rotationOffset = rotationOffset,
             onTextureViewRef = { mainTextureViewRef = it },
+            onSurfaceTextureDestroyed = { cameraManager.onMainSurfaceDestroyed() },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -214,6 +252,7 @@ private fun CameraDirectorContent() {
                 previewHeight = cameraManager.insetPreviewSize.height,
                 rotationOffset = rotationOffset,
                 onTextureViewRef = { insetTextureViewRef = it },
+                onSurfaceTextureDestroyed = { cameraManager.onInsetSurfaceDestroyed() },
                 modifier = Modifier.fillMaxSize()
             )
         }

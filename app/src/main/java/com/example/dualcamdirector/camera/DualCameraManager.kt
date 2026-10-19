@@ -163,33 +163,114 @@ class DualCameraManager(private val context: Context) {
         return Size(preferredWidth, preferredHeight)
     }
 
+    @Volatile
+    private var isPaused = false
+
+    @Volatile
+    private var isOpeningPrimary = false
+
+    @Volatile
+    private var isOpeningSecondary = false
+
     fun setMainSurface(st: SurfaceTexture) {
         mainSurfaceTexture = st
         startBackgroundThread()
-        openPrimaryCamera(st)
+        if (!isPaused) {
+            openPrimaryCamera(st)
+        }
     }
 
     fun setInsetSurface(st: SurfaceTexture) {
         insetSurfaceTexture = st
         startBackgroundThread()
-        openSecondaryCamera(st)
+        if (!isPaused) {
+            openSecondaryCamera(st)
+        }
+    }
+
+    fun onMainSurfaceDestroyed() {
+        Log.i(TAG, "onMainSurfaceDestroyed()")
+        closePrimaryCamera()
+        mainSurfaceTexture = null
+    }
+
+    fun onInsetSurfaceDestroyed() {
+        Log.i(TAG, "onInsetSurfaceDestroyed()")
+        closeSecondaryCamera()
+        insetSurfaceTexture = null
+    }
+
+    fun pauseCameras() {
+        Log.i(TAG, "pauseCameras()")
+        isPaused = true
+        isOpeningPrimary = false
+        isOpeningSecondary = false
+        closePrimaryCamera()
+        closeSecondaryCamera()
+    }
+
+    fun resumeCameras(mainSurface: SurfaceTexture? = null, insetSurface: SurfaceTexture? = null) {
+        Log.i(TAG, "resumeCameras()")
+        isPaused = false
+        startBackgroundThread()
+
+        if (mainSurface != null && isSurfaceTextureValid(mainSurface)) {
+            mainSurfaceTexture = mainSurface
+        }
+        if (insetSurface != null && isSurfaceTextureValid(insetSurface)) {
+            insetSurfaceTexture = insetSurface
+        }
+
+        mainSurfaceTexture?.let { st ->
+            if (isSurfaceTextureValid(st) && primaryCameraDevice == null && !isOpeningPrimary) {
+                openPrimaryCamera(st)
+            }
+        }
+
+        insetSurfaceTexture?.let { st ->
+            if (isSurfaceTextureValid(st) && secondaryCameraDevice == null && !isOpeningSecondary) {
+                openSecondaryCamera(st)
+            }
+        }
     }
 
     fun stopCameras() {
-        closePrimaryCamera()
-        closeSecondaryCamera()
+        Log.i(TAG, "stopCameras()")
+        pauseCameras()
         stopBackgroundThread()
+    }
+
+    private fun isSurfaceTextureValid(st: SurfaceTexture?): Boolean {
+        if (st == null) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return !st.isReleased
+        }
+        return true
     }
 
     @SuppressLint("MissingPermission")
     private fun openPrimaryCamera(surfaceTexture: SurfaceTexture?) {
-        if (surfaceTexture == null) return
+        if (isPaused) {
+            Log.i(TAG, "openPrimaryCamera skipped: app is paused")
+            return
+        }
+        if (surfaceTexture == null || !isSurfaceTextureValid(surfaceTexture)) {
+            Log.w(TAG, "openPrimaryCamera: surfaceTexture is null or released")
+            return
+        }
+        if (primaryCameraDevice != null || isOpeningPrimary) {
+            Log.i(TAG, "Primary camera already open or opening")
+            return
+        }
+
         val role = _camState.value.mainRole
         val targetCameraId = if (role == CameraRole.BACK) backCameraId else frontCameraId
         if (targetCameraId == null) {
             Log.w(TAG, "No camera ID found for main role $role")
             return
         }
+
+        isOpeningPrimary = true
 
         try {
             closePrimaryCamera()
@@ -203,24 +284,37 @@ class DualCameraManager(private val context: Context) {
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     Log.i(TAG, "Primary Camera onOpened: ${camera.id}")
+                    isOpeningPrimary = false
                     primaryCameraDevice = camera
                     createPrimaryCaptureSession()
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
                     Log.w(TAG, "Primary Camera onDisconnected: ${camera.id}")
+                    isOpeningPrimary = false
                     camera.close()
                     primaryCameraDevice = null
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Primary Camera onError: ${camera.id}, code: $error")
+                    isOpeningPrimary = false
                     camera.close()
                     primaryCameraDevice = null
+
+                    if (!isPaused && (error == ERROR_CAMERA_IN_USE || error == ERROR_MAX_CAMERAS_IN_USE || error == ERROR_CAMERA_DEVICE)) {
+                        Log.i(TAG, "Primary camera HAL busy/error $error. Retrying in 350ms...")
+                        backgroundHandler?.postDelayed({
+                            if (!isPaused && primaryCameraDevice == null && isSurfaceTextureValid(mainSurfaceTexture)) {
+                                openPrimaryCamera(mainSurfaceTexture)
+                            }
+                        }, 350L)
+                    }
                 }
             }, backgroundHandler)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open primary camera", e)
+            isOpeningPrimary = false
         }
     }
 
@@ -258,13 +352,27 @@ class DualCameraManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun openSecondaryCamera(surfaceTexture: SurfaceTexture?) {
-        if (surfaceTexture == null) return
+        if (isPaused) {
+            Log.i(TAG, "openSecondaryCamera skipped: app is paused")
+            return
+        }
+        if (surfaceTexture == null || !isSurfaceTextureValid(surfaceTexture)) {
+            Log.w(TAG, "openSecondaryCamera: surfaceTexture is null or released")
+            return
+        }
+        if (secondaryCameraDevice != null || isOpeningSecondary) {
+            Log.i(TAG, "Secondary camera already open or opening")
+            return
+        }
+
         val role = _camState.value.insetRole
         val targetCameraId = if (role == CameraRole.BACK) backCameraId else frontCameraId
         if (targetCameraId == null) {
             Log.w(TAG, "No camera ID found for inset role $role")
             return
         }
+
+        isOpeningSecondary = true
 
         try {
             closeSecondaryCamera()
@@ -278,24 +386,37 @@ class DualCameraManager(private val context: Context) {
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     Log.i(TAG, "Secondary Inset Camera onOpened: ${camera.id}")
+                    isOpeningSecondary = false
                     secondaryCameraDevice = camera
                     createSecondaryCaptureSession()
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
                     Log.w(TAG, "Secondary Inset Camera onDisconnected: ${camera.id}")
+                    isOpeningSecondary = false
                     camera.close()
                     secondaryCameraDevice = null
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Secondary Inset Camera onError: ${camera.id}, code: $error")
+                    isOpeningSecondary = false
                     camera.close()
                     secondaryCameraDevice = null
+
+                    if (!isPaused && (error == ERROR_CAMERA_IN_USE || error == ERROR_MAX_CAMERAS_IN_USE || error == ERROR_CAMERA_DEVICE)) {
+                        Log.i(TAG, "Secondary camera HAL busy/error $error. Retrying in 350ms...")
+                        backgroundHandler?.postDelayed({
+                            if (!isPaused && secondaryCameraDevice == null && isSurfaceTextureValid(insetSurfaceTexture)) {
+                                openSecondaryCamera(insetSurfaceTexture)
+                            }
+                        }, 350L)
+                    }
                 }
             }, backgroundHandler)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open secondary camera", e)
+            isOpeningSecondary = false
         }
     }
 
@@ -434,8 +555,8 @@ class DualCameraManager(private val context: Context) {
         closePrimaryCamera()
         closeSecondaryCamera()
 
-        mainSurfaceTexture?.let { openPrimaryCamera(it) }
-        insetSurfaceTexture?.let { openSecondaryCamera(it) }
+        mainSurfaceTexture?.let { if (isSurfaceTextureValid(it)) openPrimaryCamera(it) }
+        insetSurfaceTexture?.let { if (isSurfaceTextureValid(it)) openSecondaryCamera(it) }
     }
 
     fun toggleTorch(enable: Boolean) {

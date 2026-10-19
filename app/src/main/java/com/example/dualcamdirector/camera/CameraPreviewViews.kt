@@ -127,6 +127,7 @@ fun HardwareCameraView(
     previewHeight: Int = 1080,
     rotationOffset: Int = 0,
     onTextureViewRef: (TextureView) -> Unit = {},
+    onSurfaceTextureDestroyed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -231,6 +232,7 @@ fun HardwareCameraView(
 
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                        hasConfiguredInitialFrame = false
                         configureTransform(this@apply, w, h)
                         onSurfaceTextureAvailable(st)
                     }
@@ -239,7 +241,11 @@ fun HardwareCameraView(
                         configureTransform(this@apply, w, h)
                     }
 
-                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
+                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                        hasConfiguredInitialFrame = false
+                        onSurfaceTextureDestroyed()
+                        return true
+                    }
 
                     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
                         // Re-apply on first frame to prevent camera HAL/driver from wiping the transform matrix
