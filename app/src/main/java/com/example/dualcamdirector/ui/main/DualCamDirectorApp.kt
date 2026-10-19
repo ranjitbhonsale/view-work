@@ -213,10 +213,10 @@ private fun CameraDirectorContent() {
             onSurfaceTextureAvailable = { st ->
                 cameraManager.setMainSurface(st)
             },
-            sensorOrientation = cameraManager.mainSensorOrientation,
-            isFrontCamera = cameraManager.isMainFront,
-            previewWidth = cameraManager.mainPreviewSize.width,
-            previewHeight = cameraManager.mainPreviewSize.height,
+            sensorOrientation = camState.mainSensorOrientation,
+            isFrontCamera = camState.mainRole == CameraRole.FRONT,
+            previewWidth = camState.mainPreviewSize.width,
+            previewHeight = camState.mainPreviewSize.height,
             rotationOffset = rotationOffset,
             onTextureViewRef = { mainTextureViewRef = it },
             onSurfaceTextureDestroyed = { cameraManager.onMainSurfaceDestroyed() },
@@ -246,10 +246,10 @@ private fun CameraDirectorContent() {
                 onSurfaceTextureAvailable = { st ->
                     cameraManager.setInsetSurface(st)
                 },
-                sensorOrientation = cameraManager.insetSensorOrientation,
-                isFrontCamera = cameraManager.isInsetFront,
-                previewWidth = cameraManager.insetPreviewSize.width,
-                previewHeight = cameraManager.insetPreviewSize.height,
+                sensorOrientation = camState.insetSensorOrientation,
+                isFrontCamera = camState.insetRole == CameraRole.FRONT,
+                previewWidth = camState.insetPreviewSize.width,
+                previewHeight = camState.insetPreviewSize.height,
                 rotationOffset = rotationOffset,
                 onTextureViewRef = { insetTextureViewRef = it },
                 onSurfaceTextureDestroyed = { cameraManager.onInsetSurfaceDestroyed() },

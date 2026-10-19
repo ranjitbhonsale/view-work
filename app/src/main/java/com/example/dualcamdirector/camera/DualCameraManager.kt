@@ -135,7 +135,9 @@ class DualCameraManager(private val context: Context) {
                     isConcurrentHardwareActive = true,
                     hardwareConcurrencyMessage = "Dual Camera Stream Active",
                     availableBackCameras = backList,
-                    availableFrontCameras = frontList
+                    availableFrontCameras = frontList,
+                    mainSensorOrientation = backSensorOrientation,
+                    insetSensorOrientation = frontSensorOrientation
                 )
             }
 
@@ -151,7 +153,39 @@ class DualCameraManager(private val context: Context) {
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val sizes = map?.getOutputSizes(SurfaceTexture::class.java)
             if (!sizes.isNullOrEmpty()) {
-                // Find matching 16:9 or 4:3 size closest to preferred resolution
+                val targetRatio = preferredWidth.toFloat() / preferredHeight.toFloat()
+
+                // 1. Prioritize sizes matching preferred aspect ratio (e.g. 16:9 within 3% tolerance)
+                val matchingRatioSizes = sizes.filter {
+                    val r = it.width.toFloat() / it.height.toFloat()
+                    kotlin.math.abs(r - targetRatio) < 0.05f
+                }
+                if (matchingRatioSizes.isNotEmpty()) {
+                    val match = matchingRatioSizes.minByOrNull {
+                        kotlin.math.abs(it.width - preferredWidth) + kotlin.math.abs(it.height - preferredHeight)
+                    }
+                    if (match != null) {
+                        Log.i(TAG, "getOptimalPreviewSize for $cameraId: matched target aspect ratio $targetRatio -> ${match.width}x${match.height}")
+                        return match
+                    }
+                }
+
+                // 2. Fallback to 4:3 if preferred is not available
+                val fourThreeSizes = sizes.filter {
+                    val r = it.width.toFloat() / it.height.toFloat()
+                    kotlin.math.abs(r - (4f / 3f)) < 0.05f
+                }
+                if (fourThreeSizes.isNotEmpty()) {
+                    val match = fourThreeSizes.minByOrNull {
+                        kotlin.math.abs(it.width - preferredWidth) + kotlin.math.abs(it.height - preferredHeight)
+                    }
+                    if (match != null) {
+                        Log.i(TAG, "getOptimalPreviewSize for $cameraId: fallback to 4:3 ratio -> ${match.width}x${match.height}")
+                        return match
+                    }
+                }
+
+                // 3. Fallback to closest overall size
                 val match = sizes.minByOrNull {
                     kotlin.math.abs(it.width - preferredWidth) + kotlin.math.abs(it.height - preferredHeight)
                 }
@@ -276,6 +310,7 @@ class DualCameraManager(private val context: Context) {
             closePrimaryCamera()
             val previewSize = getOptimalPreviewSize(targetCameraId, 1920, 1080)
             mainPreviewSize = previewSize
+            _camState.update { it.copy(mainPreviewSize = previewSize) }
             surfaceTexture.setDefaultBufferSize(previewSize.width, previewSize.height)
             primarySurface = Surface(surfaceTexture)
 
@@ -378,6 +413,7 @@ class DualCameraManager(private val context: Context) {
             closeSecondaryCamera()
             val previewSize = getOptimalPreviewSize(targetCameraId, 1280, 720)
             insetPreviewSize = previewSize
+            _camState.update { it.copy(insetPreviewSize = previewSize) }
             surfaceTexture.setDefaultBufferSize(previewSize.width, previewSize.height)
             secondarySurface = Surface(surfaceTexture)
 
@@ -541,13 +577,17 @@ class DualCameraManager(private val context: Context) {
         val oldInset = _camState.value.insetRole
         val oldMainZoom = _camState.value.mainZoom
         val oldInsetZoom = _camState.value.insetZoom
+        val oldMainOrient = _camState.value.mainSensorOrientation
+        val oldInsetOrient = _camState.value.insetSensorOrientation
 
         _camState.update {
             it.copy(
                 mainRole = oldInset,
                 insetRole = oldMain,
                 mainZoom = oldInsetZoom,
-                insetZoom = oldMainZoom
+                insetZoom = oldMainZoom,
+                mainSensorOrientation = oldInsetOrient,
+                insetSensorOrientation = oldMainOrient
             )
         }
 

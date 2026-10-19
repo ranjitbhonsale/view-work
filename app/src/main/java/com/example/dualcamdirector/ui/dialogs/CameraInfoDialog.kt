@@ -55,14 +55,14 @@ fun CameraInfoDialog(
                     .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                InfoRow(label = "App Version", value = "v1.1")
+                InfoRow(label = "App Version", value = "v1.2 (Aspect Calibrated)")
                 InfoRow(label = "Hardware Mode", value = camState.hardwareConcurrencyMessage)
                 InfoRow(
                     label = "Concurrent HW",
                     value = if (camState.isConcurrentHardwareActive) "Supported (Dual ISP)" else "Simulated Secondary / Single ISP"
                 )
-                InfoRow(label = "Main Camera", value = "${camState.mainRole.name} (0.6x - 10.0x)")
-                InfoRow(label = "Inset Camera", value = "${camState.insetRole.name} (0.6x - 10.0x)")
+                InfoRow(label = "Main Camera", value = "${camState.mainRole.name} (${camState.mainPreviewSize.width}x${camState.mainPreviewSize.height})")
+                InfoRow(label = "Inset Camera", value = "${camState.insetRole.name} (${camState.insetPreviewSize.width}x${camState.insetPreviewSize.height})")
                 InfoRow(label = "Back Camera IDs", value = camState.availableBackCameras.joinToString(", ").ifEmpty { "0" })
                 InfoRow(label = "Front Camera IDs", value = camState.availableFrontCameras.joinToString(", ").ifEmpty { "1" })
 

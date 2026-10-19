@@ -108,14 +108,16 @@ app/src/main/java/com/example/dualcamdirector/
    `DualCameraVideoRecorder` uses pre-allocated reusable bitmap buffers to prevent Garbage Collection pauses during live 30 fps video encoding.
 4. **Lifecycle-Aware Auto-Recovery (`ON_PAUSE` / `ON_RESUME`)**:
    Cleanly releases Camera2 devices, sessions, and surfaces when the app is paused (e.g., viewing gallery, switching apps, receiving calls). Upon resuming, validates `SurfaceTexture` health and safely re-opens dual camera streams with auto-retry logic for busy camera HAL drivers, preventing black screens or app freezing.
+5. **Sensor-Aware Dynamic Aspect Ratio Matching**:
+   Hardware front camera sensors natively capture in 4:3 (e.g. 1280x960, 1440x1080) or 16:9 (1280x720). `DualCameraManager` detects the camera's true stream resolution, prioritizes matching aspect ratios, and passes live stream dimensions through `DualCamState` into `HardwareCameraView`'s transform matrix. This completely eliminates vertical/horizontal stretching (e.g. circular objects appearing as tall ovals).
 
 ---
 
 ## 🚀 Building & Installing
 
 ### Output APK:
-- **`app/build/outputs/apk/debug/DualCamDirector-v1.1.apk`**
-- **`app/build/outputs/apk/debug/DualCamDirector-v1.1-debug.apk`**
+- **`app/build/outputs/apk/debug/DualCamDirector-v1.2.apk`**
+- **`app/build/outputs/apk/debug/DualCamDirector-v1.2-debug.apk`**
 
 ### Build with Gradle:
 ```bash
@@ -124,5 +126,5 @@ app/src/main/java/com/example/dualcamdirector/
 
 ### Install on Device via ADB:
 ```bash
-adb install -r "app/build/outputs/apk/debug/DualCamDirector-v1.1.apk"
+adb install -r "app/build/outputs/apk/debug/DualCamDirector-v1.2.apk"
 ```

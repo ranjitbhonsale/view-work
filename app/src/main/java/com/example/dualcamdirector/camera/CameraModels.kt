@@ -1,5 +1,7 @@
 package com.example.dualcamdirector.camera
 
+import android.util.Size
+
 enum class CameraRole {
     BACK,
     FRONT
@@ -25,5 +27,9 @@ data class DualCamState(
     val isConcurrentHardwareActive: Boolean = false,
     val hardwareConcurrencyMessage: String = "",
     val availableBackCameras: List<String> = emptyList(),
-    val availableFrontCameras: List<String> = emptyList()
+    val availableFrontCameras: List<String> = emptyList(),
+    val mainPreviewSize: Size = Size(1920, 1080),
+    val insetPreviewSize: Size = Size(1280, 720),
+    val mainSensorOrientation: Int = 90,
+    val insetSensorOrientation: Int = 270
 )
