@@ -114,8 +114,8 @@ app/src/main/java/com/example/dualcamdirector/
 ## 🚀 Building & Installing
 
 ### Output APK:
-- **`app/build/outputs/apk/debug/DualCamDirector.apk`**
-- **`app/build/outputs/apk/debug/DualCamDirector-debug.apk`**
+- **`app/build/outputs/apk/debug/DualCamDirector-v1.1.apk`**
+- **`app/build/outputs/apk/debug/DualCamDirector-v1.1-debug.apk`**
 
 ### Build with Gradle:
 ```bash
@@ -124,5 +124,5 @@ app/src/main/java/com/example/dualcamdirector/
 
 ### Install on Device via ADB:
 ```bash
-adb install -r "app/build/outputs/apk/debug/DualCamDirector.apk"
+adb install -r "app/build/outputs/apk/debug/DualCamDirector-v1.1.apk"
 ```
