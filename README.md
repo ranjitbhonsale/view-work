@@ -106,6 +106,8 @@ app/src/main/java/com/example/dualcamdirector/
    All heavy bitmap compositing, JPEG encoding, and MediaStore disk I/O run on `Dispatchers.IO`, keeping the Android Main Looper responsive and eliminating UI deadlocks.
 3. **Zero-Allocation Bitmap Recycling**:
    `DualCameraVideoRecorder` uses pre-allocated reusable bitmap buffers to prevent Garbage Collection pauses during live 30 fps video encoding.
+4. **Lifecycle-Aware Auto-Recovery (`ON_PAUSE` / `ON_RESUME`)**:
+   Cleanly releases Camera2 devices, sessions, and surfaces when the app is paused (e.g., viewing gallery, switching apps, receiving calls). Upon resuming, validates `SurfaceTexture` health and safely re-opens dual camera streams with auto-retry logic for busy camera HAL drivers, preventing black screens or app freezing.
 
 ---
 
