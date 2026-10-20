@@ -55,7 +55,7 @@ fun CameraInfoDialog(
                     .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                InfoRow(label = "App Version", value = "v1.2 (Aspect Calibrated)")
+                InfoRow(label = "App Version", value = "v1.3 (Reload & Aspect Guarded)")
                 InfoRow(label = "Hardware Mode", value = camState.hardwareConcurrencyMessage)
                 InfoRow(
                     label = "Concurrent HW",

@@ -60,6 +60,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @Composable
 fun AspectRatioCameraContainer(
@@ -132,6 +135,7 @@ fun HardwareCameraView(
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
+    var framesToReconfigure by remember { mutableIntStateOf(5) }
 
     fun configureTransform(tv: TextureView, viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
@@ -193,6 +197,28 @@ fun HardwareCameraView(
         tv.setTransform(matrix)
     }
 
+    // Lifecycle observer to guarantee the transform matrix is re-applied whenever
+    // the activity resumes / reloads from background, screen unlock, or gallery
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                framesToReconfigure = 5
+                textureViewRef?.let { tv ->
+                    tv.post {
+                        if (tv.width > 0 && tv.height > 0) {
+                            configureTransform(tv, tv.width, tv.height)
+                        }
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     LaunchedEffect(
         sensorOrientation,
         isFrontCamera,
@@ -201,6 +227,7 @@ fun HardwareCameraView(
         rotationOffset,
         configuration.orientation
     ) {
+        framesToReconfigure = 5
         textureViewRef?.let { tv ->
             if (tv.width > 0 && tv.height > 0) {
                 configureTransform(tv, tv.width, tv.height)
@@ -224,33 +251,33 @@ fun HardwareCameraView(
                     val w = right - left
                     val h = bottom - top
                     if (w > 0 && h > 0 && (w != (oldRight - oldLeft) || h != (oldBottom - oldTop))) {
+                        framesToReconfigure = 3
                         configureTransform(this, w, h)
                     }
                 }
 
-                var hasConfiguredInitialFrame = false
-
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                        hasConfiguredInitialFrame = false
+                        framesToReconfigure = 5
                         configureTransform(this@apply, w, h)
                         onSurfaceTextureAvailable(st)
                     }
 
                     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+                        framesToReconfigure = 5
                         configureTransform(this@apply, w, h)
                     }
 
                     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                        hasConfiguredInitialFrame = false
+                        framesToReconfigure = 5
                         onSurfaceTextureDestroyed()
                         return true
                     }
 
                     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
-                        // Re-apply on first frame to prevent camera HAL/driver from wiping the transform matrix
-                        if (!hasConfiguredInitialFrame) {
-                            hasConfiguredInitialFrame = true
+                        // Re-apply for first 5 frames after resume / init to prevent camera HAL/driver from wiping transform
+                        if (framesToReconfigure > 0) {
+                            framesToReconfigure--
                             post {
                                 if (width > 0 && height > 0) {
                                     configureTransform(this@apply, width, height)
@@ -261,6 +288,7 @@ fun HardwareCameraView(
                 }
 
                 if (isAvailable && surfaceTexture != null) {
+                    framesToReconfigure = 5
                     post {
                         if (width > 0 && height > 0) {
                             configureTransform(this@apply, width, height)

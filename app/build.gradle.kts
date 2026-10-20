@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.dualcamdirector"
         minSdk = 30
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     buildTypes {
@@ -40,7 +40,7 @@ android {
 }
 
 base {
-    archivesName.set("DualCamDirector-v1.2")
+    archivesName.set("DualCamDirector-v1.3")
 }
 
 kotlin {
